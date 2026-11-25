@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# dual-bt: copy Bluetooth pairing keys from Windows into Linux (BlueZ).
+# Never writes to the Windows drive and never deletes anything.
+#
+#   ./dual-bt                 dry run: shows what it would change
+#   ./dual-bt --apply         backs up, asks per device, applies
+#   ./dual-bt --help          all options
+set -euo pipefail
+
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+venv="${XDG_CACHE_HOME:-${HOME}/.cache}/dual-bt/venv"
+work_dir="${HOME}/dual-bt-backups/$(date +%Y%m%d-%H%M%S)"
+
+command -v python3 >/dev/null || { echo "python3 is required"; exit 1; }
+
+if [[ ! -x "${venv}/bin/python" ]] || ! "${venv}/bin/python" -c 'import regipy' 2>/dev/null; then
+	echo "* First run: setting up a private Python environment in ${venv}"
+	mkdir -p "$(dirname "${venv}")"
+	python3 -m venv "${venv}" || { echo "Install python3-venv first (e.g. sudo apt install python3-venv)"; exit 1; }
+	"${venv}/bin/pip" install -q -r "${here}/requirements.txt"
+fi
+
+if [[ " $* " == *" --help "* || " $* " == *" -h "* ]]; then
+	exec "${venv}/bin/python" "${here}/src/dual_bt.py" --work-dir "${work_dir}" --help
+fi
+
+mkdir -p "${work_dir}"
+echo "* Work folder (hive copies + backups): ${work_dir}"
+[[ ${EUID} -eq 0 ]] || echo "* Root is needed to read /var/lib/bluetooth"
+sudo "${venv}/bin/python" "${here}/src/dual_bt.py" --work-dir "${work_dir}" "$@"
+status=$?
+sudo chown -R "$(id -u):$(id -g)" "${work_dir}" 2>/dev/null || true
+exit ${status}
